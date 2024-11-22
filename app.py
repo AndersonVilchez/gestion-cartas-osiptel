@@ -9,7 +9,7 @@ def conectar_google_sheets(sheet_name):
     # Definir el alcance de permisos
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     # Leer credenciales desde el archivo JSON
-    creds = ServiceAccountCredentials.from_json_keyfile_name("streamlit-sheets-service@root-bricolage-442522-h4.iam.gserviceaccount.com", scope)
+    creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
     client = gspread.authorize(creds)
     sheet = client.open(sheet_name).sheet1  # Abrir la primera hoja
     return sheet
