@@ -11,7 +11,7 @@ def conectar_google_sheets(sheet_name):
     # Leer credenciales desde el archivo JSON
     creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
     client = gspread.authorize(creds)
-    sheet = client.open(sheet_name).sheet1  # Abrir la primera hoja
+    sheet = client.open("Gestión de Cartas").sheet1  # Abrir la primera hoja
     return sheet
 
 # Conectar con la hoja de cálculo
