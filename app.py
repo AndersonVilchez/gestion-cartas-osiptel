@@ -1,42 +1,89 @@
 import streamlit as st
-import firebase_admin
-from firebase_admin import credentials, firestore
+import pandas as pd
+import datetime as dt
+import plotly.express as px
 
-def conectar_firebase():
-    # Obtener las credenciales de Streamlit Secrets
-    cred_json = {
-        "type": st.secrets["firebase"]["type"],
-        "project_id": st.secrets["firebase"]["project_id"],
-        "private_key_id": st.secrets["firebase"]["private_key_id"],
-        "private_key": st.secrets["firebase"]["private_key"],
-        "client_email": st.secrets["firebase"]["client_email"],
-        "client_id": st.secrets["firebase"]["client_id"],
-        "auth_uri": st.secrets["firebase"]["auth_uri"],
-        "token_uri": st.secrets["firebase"]["token_uri"],
-        "auth_provider_x509_cert_url": st.secrets["firebase"]["auth_provider_x509_cert_url"],
-        "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"]
-    }
+# Inicialización de la base de datos en la sesión
+if "cartas_db" not in st.session_state:
+    st.session_state.cartas_db = pd.DataFrame(columns=[
+        "ID", "Trabajador", "Nombre_Carta", "Fecha_Notificación", 
+        "Días_Hábiles", "Fecha_Límite", "Estatus", 
+        "Fecha_Respuesta", "Número_Carta_Respuesta"
+    ])
+
+# Función para calcular la fecha límite (excluye fines de semana)
+def calcular_fecha_limite(fecha_inicio, dias_habiles):
+    fecha = fecha_inicio
+    while dias_habiles > 0:
+        fecha += dt.timedelta(days=1)
+        if fecha.weekday() < 5:  # Excluye sábados (5) y domingos (6)
+            dias_habiles -= 1
+    return fecha
+
+# Título principal
+st.title("Gestión de Cartas de OSIPTEL")
+
+# --- Sección 1: Ingresar nueva carta ---
+st.header("📩 Ingresar Nueva Carta")
+with st.form("nueva_carta_form"):
+    trabajador = st.selectbox("Responsable", ["Britcia", "Rosaly", "Anderson", "Renato", "Marisol"])
+    nombre_carta = st.text_input("Nombre de la Carta")
+    fecha_notificacion = st.date_input("Fecha de Notificación")
+    dias_habiles = st.number_input("Días Hábiles para Responder", min_value=1, step=1)
     
-    # Inicializar la conexión con Firebase si aún no está conectada
-    if not firebase_admin._apps:
-        firebase_admin.initialize_app(credentials.Certificate(cred_json))
-    
-    # Acceder a la base de datos Firestore
-    db = firestore.client()
-    return db
+    if st.form_submit_button("Registrar Carta"):
+        fecha_limite = calcular_fecha_limite(fecha_notificacion, dias_habiles)
+        nueva_carta = {
+            "ID": len(st.session_state.cartas_db) + 1,
+            "Trabajador": trabajador,
+            "Nombre_Carta": nombre_carta,
+            "Fecha_Notificación": fecha_notificacion,
+            "Días_Hábiles": dias_habiles,
+            "Fecha_Límite": fecha_limite,
+            "Estatus": "Pendiente",
+            "Fecha_Respuesta": None,
+            "Número_Carta_Respuesta": None
+        }
+        st.session_state.cartas_db = pd.concat(
+            [st.session_state.cartas_db, pd.DataFrame([nueva_carta])],
+            ignore_index=True
+        )
+        st.success("Carta registrada correctamente.")
 
-def mostrar_datos():
-    db = conectar_firebase()
-    # Acceder a una colección de ejemplo en Firestore
-    cartas_ref = db.collection('cartas')
-    docs = cartas_ref.stream()
+# --- Sección 2: Actualizar estado ---
+st.header("✅ Actualizar Estado de Carta")
+if not st.session_state.cartas_db.empty:
+    with st.form("actualizar_estado_form"):
+        opciones_carta = st.session_state.cartas_db["ID"].astype(str) + " - " + st.session_state.cartas_db["Nombre_Carta"]
+        id_carta = st.selectbox("Seleccionar Carta (ID - Nombre)", opciones_carta)
+        id_carta = int(id_carta.split(" - ")[0])
+        estatus = st.selectbox("Estatus", ["Pendiente", "Atendida"])
+        numero_respuesta = st.text_input("Número de Carta de Respuesta (Opcional)")
+        fecha_respuesta = st.date_input("Fecha de Respuesta (Opcional)", dt.date.today())
+        
+        if st.form_submit_button("Actualizar Carta"):
+            index = st.session_state.cartas_db.index[st.session_state.cartas_db["ID"] == id_carta][0]
+            st.session_state.cartas_db.loc[index, "Estatus"] = estatus
+            st.session_state.cartas_db.loc[index, "Número_Carta_Respuesta"] = numero_respuesta
+            st.session_state.cartas_db.loc[index, "Fecha_Respuesta"] = fecha_respuesta
+            st.success("Carta actualizada correctamente.")
+else:
+    st.warning("No hay cartas registradas para actualizar.")
 
-    # Mostrar los datos en Streamlit
-    for doc in docs:
-        st.write(f"ID: {doc.id}, Data: {doc.to_dict()}")
+# --- Sección 3: Visualización ---
+st.header("📊 Visualización de Datos")
+if not st.session_state.cartas_db.empty:
+    # Mostrar tabla completa
+    st.subheader("Base de Datos de Cartas")
+    st.dataframe(st.session_state.cartas_db)
 
-# Título de la app
-st.title('Conexión a Firebase Firestore')
-
-# Llamada para mostrar los datos
-mostrar_datos()
+    # Gráfico de evolución de cartas por mes
+    st.subheader("Evolución Mensual de Cartas")
+    cartas_db = st.session_state.cartas_db.copy()
+    cartas_db["Mes"] = pd.to_datetime(cartas_db["Fecha_Notificación"]).dt.to_period("M")
+    grafico_mensual = cartas_db.groupby("Mes").size().reset_index(name="Cantidad")
+    grafico_mensual["Mes"] = grafico_mensual["Mes"].astype(str)  # Convertir Period a string para compatibilidad con Plotly
+    fig = px.bar(grafico_mensual, x="Mes", y="Cantidad", title="Evolución Mensual de Cartas")
+    st.plotly_chart(fig)
+else:
+    st.warning("No hay datos suficientes para mostrar.")
