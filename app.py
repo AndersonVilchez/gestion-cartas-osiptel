@@ -2,18 +2,6 @@ import streamlit as st
 import pandas as pd
 import datetime as dt
 import plotly.express as px
-import firebase_admin
-from firebase_admin import credentials, firestore
-
-# Cargar las credenciales desde Streamlit Secrets
-cred_json = st.secrets["firebase"]
-
-# Inicializar Firebase Admin
-cred = credentials.Certificate(cred_json)
-firebase_admin.initialize_app(cred)
-
-# Conectar a la base de datos Firestore
-db = firestore.client()
 
 # Inicialización de la base de datos en la sesión
 if "cartas_db" not in st.session_state:
@@ -60,7 +48,42 @@ with st.form("nueva_carta_form"):
             [st.session_state.cartas_db, pd.DataFrame([nueva_carta])],
             ignore_index=True
         )
-        # Guardar en Firestore
-        db.collection('cartas').add(nueva_carta)
         st.success("Carta registrada correctamente.")
 
+# --- Sección 2: Actualizar estado ---
+st.header("✅ Actualizar Estado de Carta")
+if not st.session_state.cartas_db.empty:
+    with st.form("actualizar_estado_form"):
+        opciones_carta = st.session_state.cartas_db["ID"].astype(str) + " - " + st.session_state.cartas_db["Nombre_Carta"]
+        id_carta = st.selectbox("Seleccionar Carta (ID - Nombre)", opciones_carta)
+        id_carta = int(id_carta.split(" - ")[0])
+        estatus = st.selectbox("Estatus", ["Pendiente", "Atendida"])
+        numero_respuesta = st.text_input("Número de Carta de Respuesta (Opcional)")
+        fecha_respuesta = st.date_input("Fecha de Respuesta (Opcional)", dt.date.today())
+        
+        if st.form_submit_button("Actualizar Carta"):
+            index = st.session_state.cartas_db.index[st.session_state.cartas_db["ID"] == id_carta][0]
+            st.session_state.cartas_db.loc[index, "Estatus"] = estatus
+            st.session_state.cartas_db.loc[index, "Número_Carta_Respuesta"] = numero_respuesta
+            st.session_state.cartas_db.loc[index, "Fecha_Respuesta"] = fecha_respuesta
+            st.success("Carta actualizada correctamente.")
+else:
+    st.warning("No hay cartas registradas para actualizar.")
+
+# --- Sección 3: Visualización ---
+st.header("📊 Visualización de Datos")
+if not st.session_state.cartas_db.empty:
+    # Mostrar tabla completa
+    st.subheader("Base de Datos de Cartas")
+    st.dataframe(st.session_state.cartas_db)
+
+    # Gráfico de evolución de cartas por mes
+    st.subheader("Evolución Mensual de Cartas")
+    cartas_db = st.session_state.cartas_db.copy()
+    cartas_db["Mes"] = pd.to_datetime(cartas_db["Fecha_Notificación"]).dt.to_period("M")
+    grafico_mensual = cartas_db.groupby("Mes").size().reset_index(name="Cantidad")
+    grafico_mensual["Mes"] = grafico_mensual["Mes"].astype(str)  # Convertir Period a string para compatibilidad con Plotly
+    fig = px.bar(grafico_mensual, x="Mes", y="Cantidad", title="Evolución Mensual de Cartas")
+    st.plotly_chart(fig)
+else:
+    st.warning("No hay datos suficientes para mostrar.")
